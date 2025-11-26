@@ -2,12 +2,14 @@ from http import HTTPStatus
 from types import SimpleNamespace
 from unittest.mock import MagicMock, call, patch
 
-from requests import exceptions
+from requests import exceptions, models
 
+from canvas_sdk.clients.llms.constants.file_type import FileType
 from canvas_sdk.clients.llms.libraries.llm_openai import LlmOpenai
 from canvas_sdk.clients.llms.structures.llm_response import LlmResponse
 from canvas_sdk.clients.llms.structures.llm_tokens import LlmTokens
 from canvas_sdk.clients.llms.structures.llm_turn import LlmTurn
+from canvas_sdk.clients.llms.structures.llm_url_file import LlmFileUrl
 from canvas_sdk.clients.llms.structures.settings.llm_settings import LlmSettings
 
 
@@ -63,6 +65,67 @@ def test_to_dict() -> None:
     assert result == expected
 
 
+def test_to_dict__with_files() -> None:
+    """Test conversion of prompts with file attachments to OpenAI API format."""
+    settings = LlmSettings(api_key="test_key", model="test_model")
+
+    exp_model = {
+        "content": [{"text": "the response", "type": "output_text"}],
+        "role": "assistant",
+    }
+    exp_user = {
+        "content": [
+            {"text": "the user prompt", "type": "input_text"},
+            {"file_url": "https://example.com/doc.pdf", "type": "input_file"},
+            {"image_url": "https://example.com/pic.jpg", "type": "input_image"},
+        ],
+        "role": "user",
+    }
+
+    tests = [
+        # no turn
+        (
+            [],
+            {"model": "test_model", "instructions": "", "input": []},
+            3,
+        ),
+        # model turn
+        (
+            [LlmTurn(role="model", text=["the response"])],
+            {"model": "test_model", "instructions": "", "input": [exp_model]},
+            3,
+        ),
+        # system turn
+        (
+            [LlmTurn(role="system", text=["the system prompt"])],
+            {"model": "test_model", "instructions": "the system prompt", "input": []},
+            3,
+        ),
+        # user turn
+        (
+            [LlmTurn(role="user", text=["the user prompt"])],
+            {"model": "test_model", "instructions": "", "input": [exp_user]},
+            0,
+        ),
+    ]
+    for prompts, expected, exp_files in tests:
+        tested = LlmOpenai(settings)
+
+        tested.file_urls = [
+            LlmFileUrl(url="https://example.com/doc.pdf", type=FileType.PDF),
+            LlmFileUrl(url="https://example.com/pic.jpg", type=FileType.IMAGE),
+            LlmFileUrl(url="https://example.com/text.txt", type=FileType.TEXT),
+        ]
+        assert len(tested.file_urls) == 3
+
+        for prompt in prompts:
+            tested.add_prompt(prompt)
+
+        result = tested.to_dict()
+        assert result == expected
+        assert len(tested.file_urls) == exp_files
+
+
 @patch("canvas_sdk.clients.llms.libraries.llm_openai.Http")
 def test_request(http: MagicMock) -> None:
     """Test successful API request to OpenAI."""
@@ -77,7 +140,9 @@ def test_request(http: MagicMock) -> None:
     # exceptions
     exception_no_response = exceptions.RequestException("Connection error")
     exception_with_response = exceptions.RequestException("Server error")
-    exception_with_response.response = SimpleNamespace(status_code=404, text="not found")  # type: ignore[assignment]
+    exception_with_response.response = models.Response()
+    exception_with_response.response.status_code = 404
+    exception_with_response.response._content = b"not found"
 
     tests = [
         # success

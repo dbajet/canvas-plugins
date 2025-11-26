@@ -1,7 +1,7 @@
 import json
 from http import HTTPStatus
 
-from requests import exceptions
+from requests import exceptions, models
 
 from canvas_sdk.clients.llms.libraries.llm_base import LlmBase
 from canvas_sdk.clients.llms.structures.llm_response import LlmResponse
@@ -36,6 +36,28 @@ class LlmGoogle(LlmBase):
             else:
                 contents.append({"role": role, "parts": [part]})
 
+        # if there are files and the last message has the user's role
+        if self.file_urls and contents and contents[-1]["role"] == roles[self.ROLE_USER]:
+            size_sum = 0
+            max_size = (
+                10 * 1024 * 1024
+            )  # 10MB - arbitrary limit to prevent high latency (hard limit for Gemini 2.0 is 500MB)
+            while self.file_urls and (file_url := self.file_urls.pop(0)):
+                file_content = self.base64_encoded_content_of(file_url)
+                if (
+                    file_content is not None
+                    and file_content.size > 0
+                    and size_sum + file_content.size < max_size
+                ):
+                    size_sum += file_content.size
+                    contents[-1]["parts"].append(
+                        {
+                            "inline_data": {
+                                "mime_type": file_content.mime_type,
+                                "data": file_content.content.decode("utf-8"),
+                            },
+                        }
+                    )
         return self.settings.to_dict() | {
             "contents": contents,
         }
@@ -76,7 +98,7 @@ class LlmGoogle(LlmBase):
         except exceptions.RequestException as e:
             code = HTTPStatus.BAD_REQUEST
             response = f"Request failed: {e}"
-            if hasattr(e, "response") and e.response is not None:
+            if hasattr(e, "response") and isinstance(e.response, models.Response):
                 code = e.response.status_code
                 response = e.response.text
 

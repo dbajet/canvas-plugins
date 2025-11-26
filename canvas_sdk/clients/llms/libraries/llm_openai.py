@@ -3,8 +3,9 @@ from __future__ import annotations
 import json
 from http import HTTPStatus
 
-from requests import exceptions
+from requests import exceptions, models
 
+from canvas_sdk.clients.llms.constants.file_type import FileType
 from canvas_sdk.clients.llms.libraries.llm_base import LlmBase
 from canvas_sdk.clients.llms.structures.llm_response import LlmResponse
 from canvas_sdk.clients.llms.structures.llm_tokens import LlmTokens
@@ -41,6 +42,22 @@ class LlmOpenai(LlmBase):
             for prompt in self.prompts
             if prompt.role != self.ROLE_SYSTEM
         ]
+        # if there are files and the last message has the user's role
+        if self.file_urls and messages and messages[-1]["role"] == roles[self.ROLE_USER]:
+            while self.file_urls and (file_url := self.file_urls.pop(0)):
+                item = {}
+                if file_url.type == FileType.PDF:
+                    item = {
+                        "type": "input_file",
+                        "file_url": file_url.url,
+                    }
+                elif file_url.type == FileType.IMAGE:
+                    item = {
+                        "type": "input_image",
+                        "image_url": file_url.url,
+                    }
+                if item:
+                    messages[-1]["content"].append(item)
 
         system_prompt = "\n".join(
             ["\n".join(prompt.text) for prompt in self.prompts if prompt.role == self.ROLE_SYSTEM]
@@ -82,7 +99,7 @@ class LlmOpenai(LlmBase):
         except exceptions.RequestException as e:
             code = HTTPStatus.BAD_REQUEST
             response = f"Request failed: {e}"
-            if hasattr(e, "response") and e.response is not None:
+            if hasattr(e, "response") and isinstance(e.response, models.Response):
                 code = e.response.status_code
                 response = e.response.text
 

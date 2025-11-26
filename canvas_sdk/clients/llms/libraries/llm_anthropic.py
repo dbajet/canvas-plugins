@@ -1,8 +1,10 @@
+import base64
 import json
 from http import HTTPStatus
 
-from requests import exceptions
+from requests import exceptions, models
 
+from canvas_sdk.clients.llms.constants.file_type import FileType
 from canvas_sdk.clients.llms.libraries.llm_base import LlmBase
 from canvas_sdk.clients.llms.structures.llm_response import LlmResponse
 from canvas_sdk.clients.llms.structures.llm_tokens import LlmTokens
@@ -36,6 +38,39 @@ class LlmAnthropic(LlmBase):
                 messages[-1]["content"].append(part)
             else:
                 messages.append({"role": role, "content": [part]})
+
+        # if there are files and the last message has the user's role
+        if self.file_urls and messages and messages[-1]["role"] == roles[self.ROLE_USER]:
+            while self.file_urls and (file_url := self.file_urls.pop(0)):
+                item = {}
+                if file_url.type == FileType.PDF:
+                    item = {
+                        "type": "document",
+                        "source": {
+                            "type": "url",
+                            "url": file_url.url,
+                        },
+                    }
+                elif file_url.type == FileType.IMAGE:
+                    item = {
+                        "type": "image",
+                        "source": {
+                            "type": "url",
+                            "url": file_url.url,
+                        },
+                    }
+                elif file_url.type == FileType.TEXT:
+                    file_content = self.base64_encoded_content_of(file_url)
+                    item = {
+                        "type": "document",
+                        "source": {
+                            "type": "text",
+                            "media_type": "text/plain",
+                            "data": base64.standard_b64decode(file_content.content).decode("utf-8"),
+                        },
+                    }
+                if item:
+                    messages[-1]["content"].append(item)
 
         return self.settings.to_dict() | {
             "messages": messages,
@@ -71,7 +106,7 @@ class LlmAnthropic(LlmBase):
         except exceptions.RequestException as e:
             code = HTTPStatus.BAD_REQUEST
             response = f"Request failed: {e}"
-            if hasattr(e, "response") and e.response is not None:
+            if hasattr(e, "response") and isinstance(e.response, models.Response):
                 code = e.response.status_code
                 response = e.response.text
 

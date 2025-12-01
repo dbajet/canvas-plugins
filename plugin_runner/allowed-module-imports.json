@@ -34,9 +34,17 @@
     "LlmOpenai"
   ],
   "canvas_sdk.clients.llms.structures": [
+    "FileContent",
+    "LlmFileUrl",
     "LlmResponse",
     "LlmTokens",
     "LlmTurn"
+  ],
+  "canvas_sdk.clients.llms.structures.file_content": [
+    "FileContent"
+  ],
+  "canvas_sdk.clients.llms.structures.llm_file_url": [
+    "LlmFileUrl"
   ],
   "canvas_sdk.clients.llms.structures.llm_response": [
     "LlmResponse"

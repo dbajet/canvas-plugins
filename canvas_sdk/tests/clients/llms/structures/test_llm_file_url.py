@@ -1,5 +1,5 @@
 from canvas_sdk.clients.llms.constants.file_type import FileType
-from canvas_sdk.clients.llms.structures.llm_url_file import LlmFileUrl
+from canvas_sdk.clients.llms.structures.llm_file_url import LlmFileUrl
 
 
 def test_named_tuple() -> None:

@@ -6,10 +6,10 @@ from requests import exceptions, models
 
 from canvas_sdk.clients.llms.constants.file_type import FileType
 from canvas_sdk.clients.llms.libraries.llm_openai import LlmOpenai
+from canvas_sdk.clients.llms.structures.llm_file_url import LlmFileUrl
 from canvas_sdk.clients.llms.structures.llm_response import LlmResponse
 from canvas_sdk.clients.llms.structures.llm_tokens import LlmTokens
 from canvas_sdk.clients.llms.structures.llm_turn import LlmTurn
-from canvas_sdk.clients.llms.structures.llm_url_file import LlmFileUrl
 from canvas_sdk.clients.llms.structures.settings.llm_settings import LlmSettings
 
 

@@ -12,3 +12,6 @@ class FileContent(NamedTuple):
     mime_type: str
     content: bytes
     size: int
+
+
+__exports__ = ("FileContent",)

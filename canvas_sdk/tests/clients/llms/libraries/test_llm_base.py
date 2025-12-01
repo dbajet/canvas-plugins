@@ -7,12 +7,21 @@ from requests import exceptions
 
 from canvas_sdk.clients.llms.constants.file_type import FileType
 from canvas_sdk.clients.llms.libraries.llm_base import LlmBase
+from canvas_sdk.clients.llms.structures.base_model_llm_json import BaseModelLlmJson
 from canvas_sdk.clients.llms.structures.file_content import FileContent
 from canvas_sdk.clients.llms.structures.llm_file_url import LlmFileUrl
 from canvas_sdk.clients.llms.structures.llm_response import LlmResponse
 from canvas_sdk.clients.llms.structures.llm_tokens import LlmTokens
 from canvas_sdk.clients.llms.structures.llm_turn import LlmTurn
 from canvas_sdk.clients.llms.structures.settings.llm_settings import LlmSettings
+
+
+def test_constants() -> None:
+    """Test constants."""
+    tested = LlmBase
+    assert tested.ROLE_MODEL == "model"
+    assert tested.ROLE_SYSTEM == "system"
+    assert tested.ROLE_USER == "user"
 
 
 def test___init__() -> None:
@@ -22,6 +31,8 @@ def test___init__() -> None:
 
     assert tested.settings == settings
     assert tested.prompts == []
+    assert tested.file_urls == []
+    assert tested.schema is None
 
 
 def test_reset_prompts() -> None:
@@ -127,6 +138,31 @@ def test_set_model_prompt() -> None:
     assert tested.prompts[0].text == ["model1"]
     assert tested.prompts[1].role == "model"
     assert tested.prompts[1].text == ["model2"]
+
+
+@patch.object(BaseModelLlmJson, "validate_nested_models")
+def test_set_schema(validate_nested_models: MagicMock) -> None:
+    """Test that only BaseModelLlmJson classes are accepted as schema."""
+
+    def reset_mocks() -> None:
+        validate_nested_models.reset_mock()
+
+    settings = LlmSettings(api_key="test_key", model="test_model")
+    tested = LlmBase(settings)
+    assert tested.schema is None
+
+    tests = [
+        (False, None),
+        (True, BaseModelLlmJson),
+    ]
+    for is_valid, exp_schema in tests:
+        validate_nested_models.side_effect = [is_valid]
+        tested.set_schema(BaseModelLlmJson)
+        assert tested.schema is exp_schema
+
+        calls = [call()]
+        assert validate_nested_models.call_args_list == calls
+        reset_mocks()
 
 
 def test_request() -> None:

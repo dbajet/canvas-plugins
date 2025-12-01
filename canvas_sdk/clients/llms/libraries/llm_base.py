@@ -5,6 +5,7 @@ from http import HTTPStatus
 
 from requests import exceptions
 
+from canvas_sdk.clients.llms.structures.base_model_llm_json import BaseModelLlmJson
 from canvas_sdk.clients.llms.structures.file_content import FileContent
 from canvas_sdk.clients.llms.structures.llm_file_url import LlmFileUrl
 from canvas_sdk.clients.llms.structures.llm_response import LlmResponse
@@ -40,6 +41,7 @@ class LlmBase:
         self.settings = settings
         self.prompts: list[LlmTurn] = []
         self.file_urls: list[LlmFileUrl] = []
+        self.schema: type[BaseModelLlmJson] | None = None
 
     def reset_prompts(self) -> None:
         """Clear all stored prompts."""
@@ -100,6 +102,18 @@ class LlmBase:
             text: List of text strings for the model prompt.
         """
         self.prompts.append(LlmTurn(role=self.ROLE_MODEL, text=text))
+
+    def set_schema(self, schema: type[BaseModelLlmJson] | None) -> None:
+        """Set the schema for the conversation.
+
+        Set to None prevent a structured output.
+
+        Using BaseModelLlmJson subclasses ensures the validity of the JSON Schema passed to the LLMs.
+
+        """
+        self.schema = None
+        if schema and issubclass(schema, BaseModelLlmJson) and schema.validate_nested_models():
+            self.schema = schema
 
     def request(self) -> LlmResponse:
         """Make a request to the LLM API.

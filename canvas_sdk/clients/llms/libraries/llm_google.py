@@ -58,9 +58,17 @@ class LlmGoogle(LlmBase):
                             },
                         }
                     )
-        return self.settings.to_dict() | {
-            "contents": contents,
-        }
+        # structured output requested
+        structured = {}
+        if self.schema:
+            structured = {
+                "generationConfig": {
+                    "responseMimeType": "application/json",
+                    "responseJsonSchema": self.schema.model_json_schema(),
+                },
+            }
+
+        return self.settings.to_dict() | structured | {"contents": contents}
 
     def request(self) -> LlmResponse:
         """Make a request to the Google Gemini API.

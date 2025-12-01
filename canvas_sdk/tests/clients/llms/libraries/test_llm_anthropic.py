@@ -1,12 +1,15 @@
 import base64
+from datetime import date
 from http import HTTPStatus
 from types import SimpleNamespace
 from unittest.mock import MagicMock, call, patch
 
+from pydantic import Field
 from requests import exceptions, models
 
 from canvas_sdk.clients.llms.constants.file_type import FileType
 from canvas_sdk.clients.llms.libraries.llm_anthropic import LlmAnthropic
+from canvas_sdk.clients.llms.structures.base_model_llm_json import BaseModelLlmJson
 from canvas_sdk.clients.llms.structures.file_content import FileContent
 from canvas_sdk.clients.llms.structures.llm_file_url import LlmFileUrl
 from canvas_sdk.clients.llms.structures.llm_response import LlmResponse
@@ -168,12 +171,80 @@ def test_to_dict__with_files(base64_encoded_content_of: MagicMock) -> None:
         reset_mocks()
 
 
+def test_to_dict__schema() -> None:
+    """Test conversion of prompts with schema to Anthropic API format."""
+
+    class SchemaLlm(BaseModelLlmJson):
+        first_field: int = Field(description="the first field")
+        second_field: str = Field(description="the second field")
+        third_field: date = Field(description="the third field")
+
+    settings = LlmSettings(api_key="test_key", model="test_model")
+    tested = LlmAnthropic(settings)
+    tested.add_prompt(LlmTurn(role="system", text=["system prompt"]))
+    tested.add_prompt(LlmTurn(role="user", text=["user message"]))
+
+    tested.set_schema(SchemaLlm)
+    result = tested.to_dict()
+    expected = {
+        "messages": [
+            {
+                "content": [
+                    {"text": "system prompt", "type": "text"},
+                    {"text": "user message", "type": "text"},
+                ],
+                "role": "user",
+            },
+        ],
+        "model": "test_model",
+        "tool_choice": {
+            "name": "SchemaLlm",
+            "type": "tool",
+        },
+        "tools": [
+            {
+                "input_schema": {
+                    "additionalProperties": False,
+                    "properties": {
+                        "firstField": {
+                            "description": "the first field",
+                            "title": "Firstfield",
+                            "type": "integer",
+                        },
+                        "secondField": {
+                            "description": "the second field",
+                            "title": "Secondfield",
+                            "type": "string",
+                        },
+                        "thirdField": {
+                            "description": "the third field",
+                            "format": "date",
+                            "title": "Thirdfield",
+                            "type": "string",
+                        },
+                    },
+                    "required": ["firstField", "secondField", "thirdField"],
+                    "title": "SchemaLlm",
+                    "type": "object",
+                },
+                "name": "SchemaLlm",
+            },
+        ],
+    }
+    assert result == expected
+
+
 @patch("canvas_sdk.clients.llms.libraries.llm_anthropic.Http")
 def test_request(http: MagicMock) -> None:
     """Test successful API request to Anthropic."""
 
     def reset_mocks() -> None:
         http.reset_mock()
+
+    class SchemaLlm(BaseModelLlmJson):
+        first_field: int = Field(description="the first field")
+        second_field: str = Field(description="the second field")
+        third_field: date = Field(description="the third field")
 
     settings = LlmSettings(api_key="test_key", model="test_model")
     tested = LlmAnthropic(settings)
@@ -188,7 +259,9 @@ def test_request(http: MagicMock) -> None:
 
     tests = [
         # success
+        # -- text
         (
+            None,
             SimpleNamespace(
                 status_code=200,
                 text="{"
@@ -202,8 +275,25 @@ def test_request(http: MagicMock) -> None:
                 tokens=LlmTokens(prompt=10, generated=20),
             ),
         ),
+        # -- json
+        (
+            SchemaLlm,
+            SimpleNamespace(
+                status_code=200,
+                text="{"
+                '"content": [{"input": {"firstField":7,"secondField":"second","thirdField":"2025-12-01"}}], '
+                '"usage": {"input_tokens": 10, "output_tokens": 20}'
+                "}",
+            ),
+            LlmResponse(
+                code=HTTPStatus.OK,
+                response='{"firstField": 7, "secondField": "second", "thirdField": "2025-12-01"}',
+                tokens=LlmTokens(prompt=10, generated=20),
+            ),
+        ),
         # error
         (
+            None,
             SimpleNamespace(
                 status_code=403,
                 text="forbidden",
@@ -216,6 +306,7 @@ def test_request(http: MagicMock) -> None:
         ),
         # exception -- no response
         (
+            None,
             exception_no_response,
             LlmResponse(
                 code=HTTPStatus.BAD_REQUEST,
@@ -225,6 +316,7 @@ def test_request(http: MagicMock) -> None:
         ),
         # exception -- with response
         (
+            None,
             exception_with_response,
             LlmResponse(
                 code=HTTPStatus.NOT_FOUND,
@@ -233,9 +325,10 @@ def test_request(http: MagicMock) -> None:
             ),
         ),
     ]
-    for response, expected in tests:
+    for schema, response, expected in tests:
         http.return_value.post.side_effect = [response]
 
+        tested.set_schema(schema)
         result = tested.request()
         assert result == expected
 
@@ -250,12 +343,32 @@ def test_request(http: MagicMock) -> None:
                 },
                 data="{"
                 '"model": "test_model", '
-                '"messages": [{'
-                '"role": "user", '
-                '"content": [{"type": "text", "text": "test"}]'
-                "}]"
-                "}",
+                '"messages": [{"role": "user", "content": [{"type": "text", "text": "test"}]}]}',
             ),
         ]
+        if schema is not None:
+            calls[1] = call().post(
+                "",
+                headers={
+                    "Content-Type": "application/json",
+                    "anthropic-version": "2023-06-01",
+                    "x-api-key": "test_key",
+                },
+                data="{"
+                '"model": "test_model", '
+                '"tool_choice": {"type": "tool", "name": "SchemaLlm"}, '
+                '"tools": [{'
+                '"name": "SchemaLlm", '
+                '"input_schema": {'
+                '"additionalProperties": false, '
+                '"properties": {'
+                '"firstField": {"description": "the first field", "title": "Firstfield", "type": "integer"}, '
+                '"secondField": {"description": "the second field", "title": "Secondfield", "type": "string"}, '
+                '"thirdField": {"description": "the third field", "format": "date", "title": "Thirdfield", "type": "string"}}, '
+                '"required": ["firstField", "secondField", "thirdField"], '
+                '"title": "SchemaLlm", "type": "object"}}], '
+                '"messages": [{"role": "user", "content": [{"type": "text", "text": "test"}]}]}',
+            )
+
         assert http.mock_calls == calls
         reset_mocks()

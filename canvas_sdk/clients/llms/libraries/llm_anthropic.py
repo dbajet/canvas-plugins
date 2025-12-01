@@ -71,10 +71,22 @@ class LlmAnthropic(LlmBase):
                     }
                 if item:
                     messages[-1]["content"].append(item)
+        # structured output requested
+        structured = {}
+        if self.schema:
+            name = self.schema.__name__
+            structured = {
+                "tool_choice": {"type": "tool", "name": name},
+                "tools": [
+                    {
+                        "name": name,
+                        # "description": "Provide the response using well-structured JSON.",
+                        "input_schema": self.schema.model_json_schema(),
+                    }
+                ],
+            }
 
-        return self.settings.to_dict() | {
-            "messages": messages,
-        }
+        return self.settings.to_dict() | structured | {"messages": messages}
 
     def request(self) -> LlmResponse:
         """Make a request to the Anthropic Claude API.
@@ -97,7 +109,12 @@ class LlmAnthropic(LlmBase):
             response = request.text
             if code == HTTPStatus.OK.value:
                 content = json.loads(request.text)
-                response = content.get("content", [{}])[0].get("text", "")
+                output = content.get("content", [{}])[0]
+                if self.schema:
+                    response = json.dumps(output.get("input", {}))
+                else:
+                    response = output.get("text", "")
+
                 usage = content.get("usage", {})
                 tokens = LlmTokens(
                     prompt=usage.get("input_tokens") or 0,

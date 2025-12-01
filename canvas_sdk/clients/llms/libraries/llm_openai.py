@@ -62,10 +62,25 @@ class LlmOpenai(LlmBase):
         system_prompt = "\n".join(
             ["\n".join(prompt.text) for prompt in self.prompts if prompt.role == self.ROLE_SYSTEM]
         )
-        return self.settings.to_dict() | {
-            "instructions": system_prompt,
-            "input": messages,
-        }
+        # structured output requested
+        structured = {}
+        if self.schema:
+            structured = {
+                "text": {
+                    "format": {
+                        "type": "json_schema",
+                        "name": self.schema.__name__,
+                        "strict": True,
+                        "schema": self.schema.model_json_schema(),
+                    }
+                }
+            }
+
+        return (
+            self.settings.to_dict()
+            | structured
+            | {"instructions": system_prompt, "input": messages}
+        )
 
     def request(self) -> LlmResponse:
         """Make a request to the OpenAI API.

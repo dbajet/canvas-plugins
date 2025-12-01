@@ -46,6 +46,9 @@
     "LlmTokens",
     "LlmTurn"
   ],
+  "canvas_sdk.clients.llms.structures.base_model_llm_json": [
+    "BaseModelLlmJson"
+  ],
   "canvas_sdk.clients.llms.structures.file_content": [
     "FileContent"
   ],

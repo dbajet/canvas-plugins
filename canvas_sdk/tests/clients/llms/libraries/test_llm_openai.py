@@ -1,11 +1,14 @@
+from datetime import date
 from http import HTTPStatus
 from types import SimpleNamespace
 from unittest.mock import MagicMock, call, patch
 
+from pydantic import Field
 from requests import exceptions, models
 
 from canvas_sdk.clients.llms.constants.file_type import FileType
 from canvas_sdk.clients.llms.libraries.llm_openai import LlmOpenai
+from canvas_sdk.clients.llms.structures.base_model_llm_json import BaseModelLlmJson
 from canvas_sdk.clients.llms.structures.llm_file_url import LlmFileUrl
 from canvas_sdk.clients.llms.structures.llm_response import LlmResponse
 from canvas_sdk.clients.llms.structures.llm_tokens import LlmTokens
@@ -124,6 +127,66 @@ def test_to_dict__with_files() -> None:
         result = tested.to_dict()
         assert result == expected
         assert len(tested.file_urls) == exp_files
+
+
+def test_to_dict__schema() -> None:
+    """Test conversion of prompts with schema to Google API format."""
+
+    class SchemaLlm(BaseModelLlmJson):
+        first_field: int = Field(description="the first field")
+        second_field: str = Field(description="the second field")
+        third_field: date = Field(description="the third field")
+
+    settings = LlmSettings(api_key="test_key", model="test_model")
+    tested = LlmOpenai(settings)
+    tested.add_prompt(LlmTurn(role="system", text=["system prompt"]))
+    tested.add_prompt(LlmTurn(role="user", text=["user message"]))
+
+    tested.set_schema(SchemaLlm)
+    result = tested.to_dict()
+    expected = {
+        "input": [
+            {
+                "content": [{"text": "user message", "type": "input_text"}],
+                "role": "user",
+            },
+        ],
+        "instructions": "system prompt",
+        "model": "test_model",
+        "text": {
+            "format": {
+                "name": "SchemaLlm",
+                "schema": {
+                    "additionalProperties": False,
+                    "properties": {
+                        "firstField": {
+                            "description": "the first field",
+                            "title": "Firstfield",
+                            "type": "integer",
+                        },
+                        "secondField": {
+                            "description": "the second field",
+                            "title": "Secondfield",
+                            "type": "string",
+                        },
+                        "thirdField": {
+                            "description": "the third field",
+                            "format": "date",
+                            "title": "Thirdfield",
+                            "type": "string",
+                        },
+                    },
+                    "required": ["firstField", "secondField", "thirdField"],
+                    "title": "SchemaLlm",
+                    "type": "object",
+                },
+                "strict": True,
+                "type": "json_schema",
+            },
+        },
+    }
+
+    assert result == expected
 
 
 @patch("canvas_sdk.clients.llms.libraries.llm_openai.Http")

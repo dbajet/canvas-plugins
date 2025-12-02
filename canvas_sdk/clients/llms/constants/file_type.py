@@ -13,3 +13,6 @@ class FileType(Enum):
     IMAGE = "image"
     PDF = "pdf"
     TEXT = "text"
+
+
+__exports__ = ("FileType",)

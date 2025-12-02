@@ -16,6 +16,12 @@
     "LlmTokens",
     "LlmTurn"
   ],
+  "canvas_sdk.clients.llms.constants": [
+    "FileType"
+  ],
+  "canvas_sdk.clients.llms.constants.file_type": [
+    "FileType"
+  ],
   "canvas_sdk.clients.llms.libraries": [
     "LlmAnthropic",
     "LlmGoogle",

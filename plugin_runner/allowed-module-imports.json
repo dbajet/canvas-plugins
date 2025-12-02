@@ -11,8 +11,15 @@
     "AwsS3",
     "AwsS3Item"
   ],
+  "canvas_sdk.clients.aws.libraries": [
+    "AwsS3"
+  ],
   "canvas_sdk.clients.aws.libraries.aws_s3": [
     "AwsS3"
+  ],
+  "canvas_sdk.clients.aws.structures": [
+    "AwsCredentials",
+    "AwsS3Item"
   ],
   "canvas_sdk.clients.aws.structures.aws_credentials": [
     "AwsCredentials"

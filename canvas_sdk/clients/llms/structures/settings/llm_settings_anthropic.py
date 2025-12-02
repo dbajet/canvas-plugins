@@ -26,7 +26,7 @@ class LlmSettingsAnthropic(LlmSettings):
     """
 
     temperature: float
-    max_tokens: float
+    max_tokens: int
 
     def to_dict(self) -> dict:
         """Convert settings to Anthropic API request format.

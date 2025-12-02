@@ -1,4 +1,16 @@
 from canvas_sdk.clients.llms.structures.llm_turn import LlmTurn
+from canvas_sdk.tests.conftest import is_namedtuple
+
+
+def test_class() -> None:
+    """Test LlmTurn is a NamedTuple with correct fields and types."""
+    assert is_namedtuple(
+        LlmTurn,
+        {
+            "role": str,
+            "text": list[str],
+        },
+    )
 
 
 def test_to_dict() -> None:

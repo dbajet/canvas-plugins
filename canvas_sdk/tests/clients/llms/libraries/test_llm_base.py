@@ -8,6 +8,19 @@ from canvas_sdk.clients.llms.structures.llm_response import LlmResponse
 from canvas_sdk.clients.llms.structures.llm_tokens import LlmTokens
 from canvas_sdk.clients.llms.structures.llm_turn import LlmTurn
 from canvas_sdk.clients.llms.structures.settings.llm_settings import LlmSettings
+from canvas_sdk.tests.conftest import has_constants
+
+
+def test_constants() -> None:
+    """Test LlmBase class constants values."""
+    assert has_constants(
+        LlmBase,
+        {
+            "ROLE_SYSTEM": "system",
+            "ROLE_USER": "user",
+            "ROLE_MODEL": "model",
+        },
+    )
 
 
 def test___init__() -> None:

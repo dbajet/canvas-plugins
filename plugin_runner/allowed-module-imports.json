@@ -6,6 +6,20 @@
   "canvas_sdk.caching.plugins": [
     "get_cache"
   ],
+  "canvas_sdk.clients.aws": [
+    "AwsCredentials",
+    "AwsS3",
+    "AwsS3Item"
+  ],
+  "canvas_sdk.clients.aws.libraries.aws_s3": [
+    "AwsS3"
+  ],
+  "canvas_sdk.clients.aws.structures.aws_credentials": [
+    "AwsCredentials"
+  ],
+  "canvas_sdk.clients.aws.structures.aws_s3_item": [
+    "AwsS3Item"
+  ],
   "canvas_sdk.clients.llms": [
     "LlmAnthropic",
     "LlmGoogle",

@@ -4,11 +4,17 @@ from unittest.mock import MagicMock, call, patch
 
 from requests import exceptions
 
+from canvas_sdk.clients.llms.libraries.llm_base import LlmBase
 from canvas_sdk.clients.llms.libraries.llm_google import LlmGoogle
 from canvas_sdk.clients.llms.structures.llm_response import LlmResponse
 from canvas_sdk.clients.llms.structures.llm_tokens import LlmTokens
 from canvas_sdk.clients.llms.structures.llm_turn import LlmTurn
 from canvas_sdk.clients.llms.structures.settings.llm_settings import LlmSettings
+
+
+def test_class() -> None:
+    """Test LlmGoogle is a subclass of LlmBase."""
+    assert issubclass(LlmGoogle, LlmBase)
 
 
 def test_to_dict() -> None:

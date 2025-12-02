@@ -18,6 +18,9 @@ def test_constants() -> None:
         {
             "ALGORITHM": "AWS4-HMAC-SHA256",
             "SAFE_CHARACTERS": "-._~",
+            "SERVICE_NAME": "s3",
+            "REQUEST_TYPE": "aws4_request",
+            "UNSIGNED_PAYLOAD": "UNSIGNED-PAYLOAD",
         },
     )
 

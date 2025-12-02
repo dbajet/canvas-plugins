@@ -25,10 +25,24 @@ class AwsS3:
     Attributes:
         ALGORITHM: AWS signature algorithm used (AWS4-HMAC-SHA256)
         SAFE_CHARACTERS: Characters that don't need URL encoding
+        SERVICE_NAME: AWS service name for S3
+        REQUEST_TYPE: AWS request type
+        UNSIGNED_PAYLOAD: Constant for unsigned payload in presigned URLs
     """
 
     ALGORITHM = "AWS4-HMAC-SHA256"
     SAFE_CHARACTERS = "-._~"
+    SERVICE_NAME = "s3"
+    REQUEST_TYPE = "aws4_request"
+    UNSIGNED_PAYLOAD = "UNSIGNED-PAYLOAD"
+
+    # Regex patterns for XML parsing in list operations
+    _TRUNCATED_PATTERN = re_compile(r"<IsTruncated>(true|false)</IsTruncated>")
+    _TOKEN_PATTERN = re_compile(r"<NextContinuationToken>(.*?)</NextContinuationToken>")
+    _CONTENTS_PATTERN = re_compile(r"<Contents>(.*?)</Contents>", DOTALL)
+    _KEY_PATTERN = r"<Key>(.*?)</Key>"
+    _SIZE_PATTERN = r"<Size>(.*?)</Size>"
+    _MODIFIED_PATTERN = r"<LastModified>(.*?)</LastModified>"
 
     @classmethod
     def _querystring(cls, params: dict | None) -> str:
@@ -137,13 +151,15 @@ class AwsS3:
             Tuple of (credential_scope, signature)
         """
         date_stamp = self._amz_date_from(amz_date)
-        credential_scope = f"{date_stamp}/{self.credentials.region}/s3/aws4_request"
+        credential_scope = (
+            f"{date_stamp}/{self.credentials.region}/{self.SERVICE_NAME}/{self.REQUEST_TYPE}"
+        )
 
         k_secret = f"AWS4{self.credentials.secret}".encode()
         k_date = self._hmac_bytes(k_secret, date_stamp)
         k_region = self._hmac_bytes(k_date, self.credentials.region)
-        k_service = self._hmac_bytes(k_region, "s3")
-        k_signing = self._hmac_bytes(k_service, "aws4_request")
+        k_service = self._hmac_bytes(k_region, self.SERVICE_NAME)
+        k_signing = self._hmac_bytes(k_service, self.REQUEST_TYPE)
         string_to_sign = (
             f"{self.ALGORITHM}\n"
             f"{amz_date}\n"
@@ -205,38 +221,65 @@ class AwsS3:
         Returns:
             Complete request headers with AWS signature
         """
-        method = "PUT"
-        if not data:
+        # Determine HTTP method and extract data
+        if data is None:
             method = "GET"
-            data = b"", ""
-        binary_data, content_type = data
+            binary_data, content_type = b"", ""
+        else:
+            method = "PUT"
+            binary_data, content_type = data
 
+        # Generate base components
         host = self._get_host()
         amz_date = self._amz_date_time()
         payload_hash = sha256(binary_data).hexdigest()
         canonical_uri = f"/{quote(object_key)}"
-        canonical_headers = (
-            f"host:{host}\nx-amz-content-sha256:{payload_hash}\nx-amz-date:{amz_date}\n"
-        )
-        signed_headers = "host;x-amz-content-sha256;x-amz-date"
-        if content_type:
-            canonical_headers = f"content-type:{content_type}\n{canonical_headers}"
-            signed_headers = f"content-type;{signed_headers}"
-
         canonical_querystring = self._querystring(params)
-        canonical_request = f"{method}\n{canonical_uri}\n{canonical_querystring}\n{canonical_headers}\n{signed_headers}\n{payload_hash}"
 
+        # Build canonical headers and signed headers list
+        headers_list = []
+        signed_headers_list = []
+
+        if content_type:
+            headers_list.append(f"content-type:{content_type}")
+            signed_headers_list.append("content-type")
+
+        headers_list.extend(
+            [
+                f"host:{host}",
+                f"x-amz-content-sha256:{payload_hash}",
+                f"x-amz-date:{amz_date}",
+            ]
+        )
+        signed_headers_list.extend(["host", "x-amz-content-sha256", "x-amz-date"])
+
+        canonical_headers = "\n".join(headers_list) + "\n"
+        signed_headers = ";".join(signed_headers_list)
+
+        # Create canonical request
+        canonical_request = (
+            f"{method}\n"
+            f"{canonical_uri}\n"
+            f"{canonical_querystring}\n"
+            f"{canonical_headers}\n"
+            f"{signed_headers}\n"
+            f"{payload_hash}"
+        )
+
+        # Generate signature
         credential_scope, signature = self._get_signature_key(amz_date, canonical_request)
         authorization_header = (
             f"{self.ALGORITHM} Credential={self.credentials.key}/{credential_scope}, "
             f"SignedHeaders={signed_headers}, Signature={signature}"
         )
-        return {
+
+        result = {
             "Host": host,
             "x-amz-date": amz_date,
             "x-amz-content-sha256": payload_hash,
             "Authorization": authorization_header,
         }
+        return result
 
     def access_s3_object(self, object_key: str) -> Response | None:
         """Access (download) an object from S3.
@@ -308,9 +351,7 @@ class AwsS3:
             return None
 
         result: list[AwsS3Item] = []
-        continuation_token = None
-        truncated_pattern = re_compile(r"<IsTruncated>(true|false)</IsTruncated>")
-        token_pattern = re_compile(r"<NextContinuationToken>(.*?)</NextContinuationToken>")
+        continuation_token: str | None = None
 
         is_truncated = True
         while is_truncated:
@@ -330,12 +371,11 @@ class AwsS3:
                 )
 
             response_text = response.content.decode("utf-8")
-            contents_pattern = re_compile(r"<Contents>(.*?)</Contents>", DOTALL)
-            for content_match in contents_pattern.finditer(response_text):
+            for content_match in self._CONTENTS_PATTERN.finditer(response_text):
                 content_xml = content_match.group(1)
-                key_match = re_search(r"<Key>(.*?)</Key>", content_xml)
-                size_match = re_search(r"<Size>(.*?)</Size>", content_xml)
-                modified_match = re_search(r"<LastModified>(.*?)</LastModified>", content_xml)
+                key_match = re_search(self._KEY_PATTERN, content_xml)
+                size_match = re_search(self._SIZE_PATTERN, content_xml)
+                modified_match = re_search(self._MODIFIED_PATTERN, content_xml)
 
                 if key_match and size_match and modified_match:
                     result.append(
@@ -346,9 +386,10 @@ class AwsS3:
                         )
                     )
 
-            truncated_match = truncated_pattern.search(response_text)
+            truncated_match = self._TRUNCATED_PATTERN.search(response_text)
             is_truncated = bool(truncated_match and truncated_match.group(1) == "true")
-            if is_truncated and (token_match := token_pattern.search(response_text)):
+
+            if is_truncated and (token_match := self._TOKEN_PATTERN.search(response_text)):
                 continuation_token = token_match.group(1)
 
         return result
@@ -369,14 +410,21 @@ class AwsS3:
         method = "GET"
         host = self._get_host()
         amz_date = self._amz_date_time()
-        payload_hash = "UNSIGNED-PAYLOAD"
+        payload_hash = self.UNSIGNED_PAYLOAD
         canonical_uri = f"/{quote(object_key)}"
         canonical_headers = f"host:{host}\n"
         signed_headers = "host"
+        credentials = [
+            self.credentials.key,
+            self._amz_date_from(amz_date),
+            self.credentials.region,
+            self.SERVICE_NAME,
+            self.REQUEST_TYPE,
+        ]
 
         params = {
             "X-Amz-Algorithm": self.ALGORITHM,
-            "X-Amz-Credential": f"{self.credentials.key}/{self._amz_date_from(amz_date)}/{self.credentials.region}/s3/aws4_request",
+            "X-Amz-Credential": "/".join(credentials),
             "X-Amz-Date": amz_date,
             "X-Amz-Expires": str(expiration),
             "X-Amz-SignedHeaders": signed_headers,
@@ -396,9 +444,9 @@ class AwsS3:
         params["X-Amz-Signature"] = signature
 
         querystring = self._querystring(params)
-        presigned_url = f"https://{host}/{quote(object_key)}?{querystring}"
+        result = f"https://{host}/{quote(object_key)}?{querystring}"
 
-        return presigned_url
+        return result
 
 
 __exports__ = ("AwsS3",)

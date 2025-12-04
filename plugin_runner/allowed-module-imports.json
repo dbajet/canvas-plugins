@@ -96,8 +96,10 @@
     "GoalCommand",
     "HistoryOfPresentIllnessCommand",
     "ImagingOrderCommand",
+    "ImagingReviewCommand",
     "InstructCommand",
     "LabOrderCommand",
+    "LabReviewCommand",
     "MedicalHistoryCommand",
     "MedicationStatementCommand",
     "PastSurgicalHistoryCommand",
@@ -108,6 +110,7 @@
     "QuestionnaireCommand",
     "ReasonForVisitCommand",
     "ReferCommand",
+    "ReferralReviewCommand",
     "RefillCommand",
     "RemoveAllergyCommand",
     "ResolveConditionCommand",
@@ -221,6 +224,19 @@
   ],
   "canvas_sdk.commands.commands.resolve_condition": [
     "ResolveConditionCommand"
+  ],
+  "canvas_sdk.commands.commands.review": [
+    "ReportReviewCommunicationMethod",
+    "ReviewMode"
+  ],
+  "canvas_sdk.commands.commands.review.imaging": [
+    "ImagingReviewCommand"
+  ],
+  "canvas_sdk.commands.commands.review.lab": [
+    "LabReviewCommand"
+  ],
+  "canvas_sdk.commands.commands.review.referral": [
+    "ReferralReviewCommand"
   ],
   "canvas_sdk.commands.commands.review_of_systems": [
     "ReviewOfSystemsCommand"
@@ -759,6 +775,7 @@
     "ReasonForVisitSettingCoding",
     "Referral",
     "ReferralReport",
+    "ReferralReview",
     "ResponseOption",
     "ResponseOptionSet",
     "ServiceProvider",

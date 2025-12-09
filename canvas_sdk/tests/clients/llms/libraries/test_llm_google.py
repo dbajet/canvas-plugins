@@ -2,10 +2,13 @@ import base64
 from datetime import date
 from http import HTTPStatus
 from types import SimpleNamespace
-from unittest.mock import MagicMock, call, patch
+from typing import Any
+from unittest.mock import call
 
+import pytest
 from pydantic import Field
-from requests import exceptions, models
+from pytest_mock import MockerFixture
+from requests import exceptions
 
 from canvas_sdk.clients.llms.constants.file_type import FileType
 from canvas_sdk.clients.llms.libraries.llm_google import LlmGoogle
@@ -67,30 +70,77 @@ def test_to_dict() -> None:
     assert result == expected
 
 
-@patch.object(LlmGoogle, "base64_encoded_content_of")
-def test_to_dict_with_files(base64_encoded_content_of: MagicMock) -> None:
+@pytest.mark.parametrize(
+    ("prompts", "exp_key", "exp_files", "exp_calls"),
+    [
+        pytest.param(
+            [],
+            "exp_empty",
+            6,
+            False,
+            id="no_turn",
+        ),
+        pytest.param(
+            [LlmTurn(role="model", text=["the response"])],
+            "exp_model",
+            6,
+            False,
+            id="model_turn",
+        ),
+        pytest.param(
+            [LlmTurn(role="system", text=["the prompt"])],
+            "exp_user",
+            0,
+            True,
+            id="system_turn",
+        ),
+        pytest.param(
+            [LlmTurn(role="user", text=["the prompt"])],
+            "exp_user",
+            0,
+            True,
+            id="user_turn",
+        ),
+    ],
+)
+def test_to_dict__with_files(
+    mocker: MockerFixture,
+    prompts: list,
+    exp_key: str,
+    exp_files: int,
+    exp_calls: bool,
+) -> None:
     """Test conversion of prompts with file attachments to Google API format."""
+    base64_encoded_content_of = mocker.patch.object(LlmGoogle, "base64_encoded_content_of")
 
-    def reset_mocks() -> None:
-        base64_encoded_content_of.reset_mock()
-
-    settings = LlmSettings(api_key="test_key", model="test_model")
-
-    exp_model = {
-        "parts": [{"text": "the response"}],
-        "role": "model",
+    to_dict_returns = {
+        "exp_empty": {"model": "test_model", "contents": []},
+        "exp_model": {
+            "model": "test_model",
+            "contents": [
+                {
+                    "parts": [{"text": "the response"}],
+                    "role": "model",
+                }
+            ],
+        },
+        "exp_user": {
+            "model": "test_model",
+            "contents": [
+                {
+                    "parts": [
+                        {"text": "the prompt"},
+                        {"inline_data": {"data": "Y29udGVudDE=", "mime_type": "type1"}},
+                        {"inline_data": {"data": "Y29udGVudDI=", "mime_type": "type2"}},
+                        {"inline_data": {"data": "Y29udGVudDM=", "mime_type": "type3"}},
+                        {"inline_data": {"data": "Y29udGVudDY=", "mime_type": "type6"}},
+                    ],
+                    "role": "user",
+                }
+            ],
+        },
     }
-    exp_user = {
-        "parts": [
-            {"text": "the prompt"},
-            {"inline_data": {"data": "Y29udGVudDE=", "mime_type": "type1"}},
-            {"inline_data": {"data": "Y29udGVudDI=", "mime_type": "type2"}},
-            {"inline_data": {"data": "Y29udGVudDM=", "mime_type": "type3"}},
-            {"inline_data": {"data": "Y29udGVudDY=", "mime_type": "type6"}},
-        ],
-        "role": "user",
-    }
-    calls = [
+    call_on_files = [
         call(LlmFileUrl(url="https://example.com/doc1.pdf", type=FileType.PDF)),
         call(LlmFileUrl(url="https://example.com/pic1.jpg", type=FileType.IMAGE)),
         call(LlmFileUrl(url="https://example.com/text1.txt", type=FileType.TEXT)),
@@ -99,78 +149,38 @@ def test_to_dict_with_files(base64_encoded_content_of: MagicMock) -> None:
         call(LlmFileUrl(url="https://example.com/text2.txt", type=FileType.TEXT)),
     ]
 
-    tests = [
-        # no turn
-        (
-            [],
-            {"model": "test_model", "contents": []},
-            6,
-            [],
-        ),
-        # model turn
-        (
-            [LlmTurn(role="model", text=["the response"])],
-            {"model": "test_model", "contents": [exp_model]},
-            6,
-            [],
-        ),
-        # system turn
-        (
-            [LlmTurn(role="system", text=["the prompt"])],
-            {"model": "test_model", "contents": [exp_user]},
-            0,
-            calls,
-        ),
-        # user turn
-        (
-            [LlmTurn(role="user", text=["the prompt"])],
-            {"model": "test_model", "contents": [exp_user]},
-            0,
-            calls,
+    settings = LlmSettings(api_key="test_key", model="test_model")
+    tested = LlmGoogle(settings)
+    tested.file_urls = [
+        LlmFileUrl(url="https://example.com/doc1.pdf", type=FileType.PDF),
+        LlmFileUrl(url="https://example.com/pic1.jpg", type=FileType.IMAGE),
+        LlmFileUrl(url="https://example.com/text1.txt", type=FileType.TEXT),
+        LlmFileUrl(url="https://example.com/doc2.pdf", type=FileType.PDF),
+        LlmFileUrl(url="https://example.com/pic2.jpg", type=FileType.IMAGE),
+        LlmFileUrl(url="https://example.com/text2.txt", type=FileType.TEXT),
+    ]
+    assert len(tested.file_urls) == 6
+
+    for prompt in prompts:
+        tested.add_prompt(prompt)
+
+    base64_encoded_content_of.side_effect = [
+        FileContent(mime_type="type1", content=base64.b64encode(b"content1"), size=4 * 1024 * 1024),
+        FileContent(mime_type="type2", content=base64.b64encode(b"content2"), size=3 * 1024 * 1024),
+        FileContent(mime_type="type3", content=base64.b64encode(b"content3"), size=2 * 1024 * 1024),
+        FileContent(mime_type="type4", content=base64.b64encode(b"content4"), size=2 * 1024 * 1024),
+        FileContent(mime_type="type5", content=base64.b64encode(b"content5"), size=2 * 1024 * 1024),
+        FileContent(
+            mime_type="type6", content=base64.b64encode(b"content6"), size=1 * 1024 * 1024 - 1
         ),
     ]
-    for prompts, expected, exp_files, exp_calls in tests:
-        tested = LlmGoogle(settings)
-
-        tested.file_urls = [
-            LlmFileUrl(url="https://example.com/doc1.pdf", type=FileType.PDF),
-            LlmFileUrl(url="https://example.com/pic1.jpg", type=FileType.IMAGE),
-            LlmFileUrl(url="https://example.com/text1.txt", type=FileType.TEXT),
-            LlmFileUrl(url="https://example.com/doc2.pdf", type=FileType.PDF),
-            LlmFileUrl(url="https://example.com/pic2.jpg", type=FileType.IMAGE),
-            LlmFileUrl(url="https://example.com/text2.txt", type=FileType.TEXT),
-        ]
-        assert len(tested.file_urls) == 6
-
-        for prompt in prompts:
-            tested.add_prompt(prompt)
-
-        base64_encoded_content_of.side_effect = [
-            FileContent(
-                mime_type="type1", content=base64.b64encode(b"content1"), size=4 * 1024 * 1024
-            ),
-            FileContent(
-                mime_type="type2", content=base64.b64encode(b"content2"), size=3 * 1024 * 1024
-            ),
-            FileContent(
-                mime_type="type3", content=base64.b64encode(b"content3"), size=2 * 1024 * 1024
-            ),
-            FileContent(
-                mime_type="type4", content=base64.b64encode(b"content4"), size=2 * 1024 * 1024
-            ),
-            FileContent(
-                mime_type="type5", content=base64.b64encode(b"content5"), size=2 * 1024 * 1024
-            ),
-            FileContent(
-                mime_type="type6", content=base64.b64encode(b"content6"), size=1 * 1024 * 1024 - 1
-            ),
-        ]
-        result = tested.to_dict()
-        assert result == expected
-        assert len(tested.file_urls) == exp_files
-
-        assert base64_encoded_content_of.mock_calls == exp_calls
-        reset_mocks()
+    result = tested.to_dict()
+    assert result == to_dict_returns[exp_key]
+    assert len(tested.file_urls) == exp_files
+    calls = []
+    if exp_calls:
+        calls = call_on_files
+    assert base64_encoded_content_of.mock_calls == calls
 
 
 def test_to_dict__schema() -> None:
@@ -231,27 +241,10 @@ def test_to_dict__schema() -> None:
     assert result == expected
 
 
-@patch("canvas_sdk.clients.llms.libraries.llm_google.Http")
-def test_request(http: MagicMock) -> None:
-    """Test successful API request to Google."""
-
-    def reset_mocks() -> None:
-        http.reset_mock()
-
-    settings = LlmSettings(api_key="test_key", model="test_model")
-    tested = LlmGoogle(settings)
-    tested.add_prompt(LlmTurn(role="user", text=["test"]))
-
-    # exceptions
-    exception_no_response = exceptions.RequestException("Connection error")
-    exception_with_response = exceptions.RequestException("Server error")
-    exception_with_response.response = models.Response()
-    exception_with_response.response.status_code = 404
-    exception_with_response.response._content = b"not found"
-
-    tests = [
-        # success
-        (
+@pytest.mark.parametrize(
+    ("response", "expected"),
+    [
+        pytest.param(
             SimpleNamespace(
                 status_code=200,
                 text="{"
@@ -264,9 +257,9 @@ def test_request(http: MagicMock) -> None:
                 response="response text",
                 tokens=LlmTokens(prompt=10, generated=20),
             ),
+            id="all_good",
         ),
-        # error
-        (
+        pytest.param(
             SimpleNamespace(
                 status_code=429,
                 text="Rate limit exceeded",
@@ -276,51 +269,61 @@ def test_request(http: MagicMock) -> None:
                 response="Rate limit exceeded",
                 tokens=LlmTokens(prompt=0, generated=0),
             ),
+            id="error",
         ),
-        # exception -- no response
-        (
-            exception_no_response,
+        pytest.param(
+            exceptions.RequestException("Connection error"),
             LlmResponse(
                 code=HTTPStatus.BAD_REQUEST,
                 response="Request failed: Connection error",
                 tokens=LlmTokens(prompt=0, generated=0),
             ),
+            id="exception--no-response",
         ),
-        # exception -- with response
-        (
-            exception_with_response,
+        pytest.param(
+            exceptions.RequestException(
+                "Server error",
+                response=SimpleNamespace(status_code=404, text="not found"),  # type: ignore[arg-type]
+            ),
             LlmResponse(
                 code=HTTPStatus.NOT_FOUND,
                 response="not found",
                 tokens=LlmTokens(prompt=0, generated=0),
             ),
+            id="exception--with-response",
+        ),
+    ],
+)
+def test_request(mocker: MockerFixture, response: Any, expected: LlmResponse) -> None:
+    """Test successful API request to Google."""
+    http = mocker.patch("canvas_sdk.clients.llms.libraries.llm_google.Http")
+    http.return_value.post.side_effect = [response]
+
+    settings = LlmSettings(api_key="test_key", model="test_model")
+    tested = LlmGoogle(settings)
+    tested.add_prompt(LlmTurn(role="user", text=["test"]))
+
+    result = tested.request()
+    assert result == expected
+
+    calls = [
+        call(
+            "https://generativelanguage.googleapis.com/"
+            "v1beta/"
+            "test_model:generateContent?key=test_key"
+        ),
+        call().post(
+            "",
+            headers={
+                "Content-Type": "application/json",
+            },
+            data="{"
+            '"model": "test_model", '
+            '"contents": [{'
+            '"role": "user", '
+            '"parts": [{"text": "test"}]'
+            "}]"
+            "}",
         ),
     ]
-    for response, expected in tests:
-        http.return_value.post.side_effect = [response]
-
-        result = tested.request()
-        assert result == expected
-
-        calls = [
-            call(
-                "https://generativelanguage.googleapis.com/"
-                "v1beta/"
-                "test_model:generateContent?key=test_key"
-            ),
-            call().post(
-                "",
-                headers={
-                    "Content-Type": "application/json",
-                },
-                data="{"
-                '"model": "test_model", '
-                '"contents": [{'
-                '"role": "user", '
-                '"parts": [{"text": "test"}]'
-                "}]"
-                "}",
-            ),
-        ]
-        assert http.mock_calls == calls
-        reset_mocks()
+    assert http.mock_calls == calls

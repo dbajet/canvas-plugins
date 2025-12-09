@@ -2,10 +2,13 @@ import base64
 from datetime import date
 from http import HTTPStatus
 from types import SimpleNamespace
-from unittest.mock import MagicMock, call, patch
+from typing import Any
+from unittest.mock import call
 
+import pytest
 from pydantic import Field
-from requests import exceptions, models
+from pytest_mock import MockerFixture
+from requests import exceptions
 
 from canvas_sdk.clients.llms.constants.file_type import FileType
 from canvas_sdk.clients.llms.libraries.llm_anthropic import LlmAnthropic
@@ -67,108 +70,128 @@ def test_to_dict() -> None:
     assert result == expected
 
 
-@patch.object(LlmAnthropic, "base64_encoded_content_of")
-def test_to_dict__with_files(base64_encoded_content_of: MagicMock) -> None:
-    """Test conversion of prompts with file attachments to Anthropic API format."""
-
-    def reset_mocks() -> None:
-        base64_encoded_content_of.reset_mock()
-
-    settings = LlmSettings(api_key="test_key", model="test_model")
-
-    exp_model = {
-        "content": [{"text": "the response", "type": "text"}],
-        "role": "assistant",
-    }
-    exp_user = {
-        "content": [
-            {
-                "text": "the prompt",
-                "type": "text",
-            },
-            {
-                "source": {
-                    "type": "url",
-                    "url": "https://example.com/doc.pdf",
-                },
-                "type": "document",
-            },
-            {
-                "source": {
-                    "type": "url",
-                    "url": "https://example.com/pic.jpg",
-                },
-                "type": "image",
-            },
-            {
-                "source": {
-                    "data": "theContent",
-                    "media_type": "text/plain",
-                    "type": "text",
-                },
-                "type": "document",
-            },
-        ],
-        "role": "user",
-    }
-
-    tests = [
+@pytest.mark.parametrize(
+    ("prompts", "exp_key", "exp_files", "exp_calls"),
+    [
         # no turn
-        (
+        pytest.param(
             [],
-            {"model": "test_model", "messages": []},
+            "exp_empty",
             4,
             [],
+            id="no_turn",
         ),
         # model turn
-        (
+        pytest.param(
             [LlmTurn(role="model", text=["the response"])],
-            {"model": "test_model", "messages": [exp_model]},
+            "exp_model",
             4,
             [],
+            id="model_turn",
         ),
         # system turn
-        (
+        pytest.param(
             [LlmTurn(role="system", text=["the prompt"])],
-            {"model": "test_model", "messages": [exp_user]},
+            "exp_user",
             0,
             [call(LlmFileUrl(url="https://example.com/text.txt", type=FileType.TEXT))],
+            id="system_turn",
         ),
         # user turn
-        (
+        pytest.param(
             [LlmTurn(role="user", text=["the prompt"])],
-            {"model": "test_model", "messages": [exp_user]},
+            "exp_user",
             0,
             [call(LlmFileUrl(url="https://example.com/text.txt", type=FileType.TEXT))],
+            id="user_turn",
         ),
+    ],
+)
+def test_to_dict__with_files(
+    mocker: MockerFixture,
+    prompts: list,
+    exp_key: str,
+    exp_files: int,
+    exp_calls: list,
+) -> None:
+    """Test conversion of prompts with file attachments to Anthropic API format."""
+    base64_encoded_content_of = mocker.patch.object(LlmAnthropic, "base64_encoded_content_of")
+
+    to_dict_returns = {
+        "exp_empty": {"model": "test_model", "messages": []},
+        "exp_model": {
+            "model": "test_model",
+            "messages": [
+                {
+                    "content": [{"text": "the response", "type": "text"}],
+                    "role": "assistant",
+                }
+            ],
+        },
+        "exp_user": {
+            "model": "test_model",
+            "messages": [
+                {
+                    "content": [
+                        {
+                            "text": "the prompt",
+                            "type": "text",
+                        },
+                        {
+                            "source": {
+                                "type": "url",
+                                "url": "https://example.com/doc.pdf",
+                            },
+                            "type": "document",
+                        },
+                        {
+                            "source": {
+                                "type": "url",
+                                "url": "https://example.com/pic.jpg",
+                            },
+                            "type": "image",
+                        },
+                        {
+                            "source": {
+                                "data": "theContent",
+                                "media_type": "text/plain",
+                                "type": "text",
+                            },
+                            "type": "document",
+                        },
+                    ],
+                    "role": "user",
+                },
+            ],
+        },
+    }
+
+    settings = LlmSettings(api_key="test_key", model="test_model")
+    tested = LlmAnthropic(settings)
+
+    tested.file_urls = [
+        LlmFileUrl(url="https://example.com/doc.pdf", type=FileType.PDF),
+        LlmFileUrl(url="https://example.com/pic.jpg", type=FileType.IMAGE),
+        LlmFileUrl(url="https://example.com/text.txt", type=FileType.TEXT),
+        LlmFileUrl(url="https://example.com/some.nop", type="unknown"),  # type: ignore
     ]
-    for prompts, expected, exp_files, exp_calls in tests:
-        tested = LlmAnthropic(settings)
+    assert len(tested.file_urls) == 4
 
-        tested.file_urls = [
-            LlmFileUrl(url="https://example.com/doc.pdf", type=FileType.PDF),
-            LlmFileUrl(url="https://example.com/pic.jpg", type=FileType.IMAGE),
-            LlmFileUrl(url="https://example.com/text.txt", type=FileType.TEXT),
-            LlmFileUrl(url="https://example.com/some.nop", type="unknown"),  # type: ignore
-        ]
-        assert len(tested.file_urls) == 4
+    for prompt in prompts:
+        tested.add_prompt(prompt)
 
-        for prompt in prompts:
-            tested.add_prompt(prompt)
+    base64_encoded_content_of.side_effect = [
+        FileContent(
+            mime_type="theMimeType",
+            content=base64.b64encode(b"theContent"),
+            size=123,
+        )
+    ]
+    result = tested.to_dict()
+    assert result == to_dict_returns[exp_key]
+    assert len(tested.file_urls) == exp_files
 
-        base64_encoded_content_of.side_effect = [
-            FileContent(
-                mime_type="theMimeType",
-                content=base64.b64encode(b"theContent"),
-                size=123,
-            )
-        ]
-        result = tested.to_dict()
-        assert result == expected
-        assert len(tested.file_urls) == exp_files
-
-        assert base64_encoded_content_of.mock_calls == exp_calls
-        reset_mocks()
+    assert base64_encoded_content_of.mock_calls == exp_calls
 
 
 def test_to_dict__schema() -> None:
@@ -234,34 +257,11 @@ def test_to_dict__schema() -> None:
     assert result == expected
 
 
-@patch("canvas_sdk.clients.llms.libraries.llm_anthropic.Http")
-def test_request(http: MagicMock) -> None:
-    """Test successful API request to Anthropic."""
-
-    def reset_mocks() -> None:
-        http.reset_mock()
-
-    class SchemaLlm(BaseModelLlmJson):
-        first_field: int = Field(description="the first field")
-        second_field: str = Field(description="the second field")
-        third_field: date = Field(description="the third field")
-
-    settings = LlmSettings(api_key="test_key", model="test_model")
-    tested = LlmAnthropic(settings)
-    tested.add_prompt(LlmTurn(role="user", text=["test"]))
-
-    # exceptions
-    exception_no_response = exceptions.RequestException("Connection error")
-    exception_with_response = exceptions.RequestException("Server error")
-    exception_with_response.response = models.Response()
-    exception_with_response.response.status_code = 404
-    exception_with_response.response._content = b"not found"
-
-    tests = [
-        # success
-        # -- text
-        (
-            None,
+@pytest.mark.parametrize(
+    ("with_schema", "response", "expected"),
+    [
+        pytest.param(
+            False,
             SimpleNamespace(
                 status_code=200,
                 text="{"
@@ -274,10 +274,10 @@ def test_request(http: MagicMock) -> None:
                 response="response text",
                 tokens=LlmTokens(prompt=10, generated=20),
             ),
+            id="all_good_no_schema",
         ),
-        # -- json
-        (
-            SchemaLlm,
+        pytest.param(
+            True,
             SimpleNamespace(
                 status_code=200,
                 text="{"
@@ -290,10 +290,10 @@ def test_request(http: MagicMock) -> None:
                 response='{"firstField": 7, "secondField": "second", "thirdField": "2025-12-01"}',
                 tokens=LlmTokens(prompt=10, generated=20),
             ),
+            id="all_good_with_schema",
         ),
-        # error
-        (
-            None,
+        pytest.param(
+            False,
             SimpleNamespace(
                 status_code=403,
                 text="forbidden",
@@ -303,72 +303,97 @@ def test_request(http: MagicMock) -> None:
                 response="forbidden",
                 tokens=LlmTokens(prompt=0, generated=0),
             ),
+            id="error",
         ),
-        # exception -- no response
-        (
-            None,
-            exception_no_response,
+        pytest.param(
+            False,
+            exceptions.RequestException("Connection error"),
             LlmResponse(
                 code=HTTPStatus.BAD_REQUEST,
                 response="Request failed: Connection error",
                 tokens=LlmTokens(prompt=0, generated=0),
             ),
+            id="exception--no-response",
         ),
-        # exception -- with response
-        (
-            None,
-            exception_with_response,
+        pytest.param(
+            False,
+            exceptions.RequestException(
+                "Server error",
+                response=SimpleNamespace(status_code=404, text="not found"),  # type: ignore[arg-type]
+            ),
             LlmResponse(
                 code=HTTPStatus.NOT_FOUND,
                 response="not found",
                 tokens=LlmTokens(prompt=0, generated=0),
             ),
+            id="exception--with-response",
+        ),
+    ],
+)
+def test_request(
+    mocker: MockerFixture,
+    with_schema: bool,
+    response: Any,
+    expected: LlmResponse,
+) -> None:
+    """Test successful API request to Anthropic."""
+    http = mocker.patch("canvas_sdk.clients.llms.libraries.llm_anthropic.Http")
+    http.return_value.post.side_effect = [response]
+
+    class SchemaLlm(BaseModelLlmJson):
+        first_field: int = Field(description="the first field")
+        second_field: str = Field(description="the second field")
+        third_field: date = Field(description="the third field")
+
+    settings = LlmSettings(api_key="test_key", model="test_model")
+    tested = LlmAnthropic(settings)
+    tested.add_prompt(LlmTurn(role="user", text=["test"]))
+
+    if with_schema:
+        tested.set_schema(SchemaLlm)
+    result = tested.request()
+    assert result == expected
+
+    calls = [
+        call("https://api.anthropic.com/v1/messages"),
+        call().post(
+            "",
+            headers={
+                "Content-Type": "application/json",
+                "anthropic-version": "2023-06-01",
+                "x-api-key": "test_key",
+            },
+            data="{"
+            '"model": "test_model", '
+            '"messages": [{'
+            '"role": "user", '
+            '"content": [{"type": "text", "text": "test"}]'
+            "}]"
+            "}",
         ),
     ]
-    for schema, response, expected in tests:
-        http.return_value.post.side_effect = [response]
+    if with_schema:
+        calls[1] = call().post(
+            "",
+            headers={
+                "Content-Type": "application/json",
+                "anthropic-version": "2023-06-01",
+                "x-api-key": "test_key",
+            },
+            data="{"
+            '"model": "test_model", '
+            '"tool_choice": {"type": "tool", "name": "SchemaLlm"}, '
+            '"tools": [{'
+            '"name": "SchemaLlm", '
+            '"input_schema": {'
+            '"additionalProperties": false, '
+            '"properties": {'
+            '"firstField": {"description": "the first field", "title": "Firstfield", "type": "integer"}, '
+            '"secondField": {"description": "the second field", "title": "Secondfield", "type": "string"}, '
+            '"thirdField": {"description": "the third field", "format": "date", "title": "Thirdfield", "type": "string"}}, '
+            '"required": ["firstField", "secondField", "thirdField"], '
+            '"title": "SchemaLlm", "type": "object"}}], '
+            '"messages": [{"role": "user", "content": [{"type": "text", "text": "test"}]}]}',
+        )
 
-        tested.set_schema(schema)
-        result = tested.request()
-        assert result == expected
-
-        calls = [
-            call("https://api.anthropic.com/v1/messages"),
-            call().post(
-                "",
-                headers={
-                    "Content-Type": "application/json",
-                    "anthropic-version": "2023-06-01",
-                    "x-api-key": "test_key",
-                },
-                data="{"
-                '"model": "test_model", '
-                '"messages": [{"role": "user", "content": [{"type": "text", "text": "test"}]}]}',
-            ),
-        ]
-        if schema is not None:
-            calls[1] = call().post(
-                "",
-                headers={
-                    "Content-Type": "application/json",
-                    "anthropic-version": "2023-06-01",
-                    "x-api-key": "test_key",
-                },
-                data="{"
-                '"model": "test_model", '
-                '"tool_choice": {"type": "tool", "name": "SchemaLlm"}, '
-                '"tools": [{'
-                '"name": "SchemaLlm", '
-                '"input_schema": {'
-                '"additionalProperties": false, '
-                '"properties": {'
-                '"firstField": {"description": "the first field", "title": "Firstfield", "type": "integer"}, '
-                '"secondField": {"description": "the second field", "title": "Secondfield", "type": "string"}, '
-                '"thirdField": {"description": "the third field", "format": "date", "title": "Thirdfield", "type": "string"}}, '
-                '"required": ["firstField", "secondField", "thirdField"], '
-                '"title": "SchemaLlm", "type": "object"}}], '
-                '"messages": [{"role": "user", "content": [{"type": "text", "text": "test"}]}]}',
-            )
-
-        assert http.mock_calls == calls
-        reset_mocks()
+    assert http.mock_calls == calls

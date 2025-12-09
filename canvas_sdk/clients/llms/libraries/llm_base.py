@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+from abc import ABC, abstractmethod
 from http import HTTPStatus
 
 from requests import exceptions
@@ -15,7 +16,7 @@ from canvas_sdk.clients.llms.structures.settings.llm_settings import LlmSettings
 from canvas_sdk.utils.http import Http
 
 
-class LlmBase:
+class LlmBase(ABC):
     """Base class for LLM (Large Language Model) API clients.
 
     Provides common functionality for managing conversation prompts and making requests
@@ -115,6 +116,7 @@ class LlmBase:
         if schema and issubclass(schema, BaseModelLlmJson) and schema.validate_nested_models():
             self.schema = schema
 
+    @abstractmethod
     def request(self) -> LlmResponse:
         """Make a request to the LLM API.
 
@@ -124,7 +126,7 @@ class LlmBase:
         Raises:
             NotImplementedError: This method must be implemented by subclasses.
         """
-        raise NotImplementedError()
+        ...
 
     def attempt_requests(self, attempts: int) -> list[LlmResponse]:
         """Attempt multiple requests to the LLM API until success or max attempts.
@@ -138,9 +140,18 @@ class LlmBase:
         """
         result: list[LlmResponse] = []
         for _ in range(attempts):
-            result.append(self.request())
-            if result[-1].code == HTTPStatus.OK:
-                break
+            try:
+                result.append(self.request())
+                if result[-1].code == HTTPStatus.OK:
+                    break
+            except Exception as e:
+                result.append(
+                    LlmResponse(
+                        code=HTTPStatus.INTERNAL_SERVER_ERROR,
+                        response=f"Request attempt failed: {e}",
+                        tokens=LlmTokens(prompt=0, generated=0),
+                    )
+                )
         else:
             result.append(
                 LlmResponse(

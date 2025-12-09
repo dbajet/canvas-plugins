@@ -1,7 +1,7 @@
 import json
 from http import HTTPStatus
 
-from requests import exceptions, models
+from requests import exceptions
 
 from canvas_sdk.clients.llms.libraries.llm_base import LlmBase
 from canvas_sdk.clients.llms.structures.llm_response import LlmResponse
@@ -98,9 +98,9 @@ class LlmGoogle(LlmBase):
         except exceptions.RequestException as e:
             code = HTTPStatus.BAD_REQUEST
             response = f"Request failed: {e}"
-            if hasattr(e, "response") and isinstance(e.response, models.Response):
-                code = e.response.status_code
-                response = e.response.text
+            if message := getattr(e, "response", None):
+                code = message.status_code
+                response = message.text
 
         return LlmResponse(
             code=HTTPStatus(code),

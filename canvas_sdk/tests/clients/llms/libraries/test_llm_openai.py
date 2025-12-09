@@ -1,8 +1,11 @@
 from http import HTTPStatus
 from types import SimpleNamespace
-from unittest.mock import MagicMock, call, patch
+from typing import Any
+from unittest.mock import call
 
-from requests import exceptions, models
+import pytest
+from pytest_mock import MockerFixture
+from requests import exceptions
 
 from canvas_sdk.clients.llms.constants.file_type import FileType
 from canvas_sdk.clients.llms.libraries.llm_openai import LlmOpenai
@@ -65,88 +68,82 @@ def test_to_dict() -> None:
     assert result == expected
 
 
-def test_to_dict__with_files() -> None:
-    """Test conversion of prompts with file attachments to OpenAI API format."""
-    settings = LlmSettings(api_key="test_key", model="test_model")
-
-    exp_model = {
-        "content": [{"text": "the response", "type": "output_text"}],
-        "role": "assistant",
-    }
-    exp_user = {
-        "content": [
-            {"text": "the user prompt", "type": "input_text"},
-            {"file_url": "https://example.com/doc.pdf", "type": "input_file"},
-            {"image_url": "https://example.com/pic.jpg", "type": "input_image"},
-        ],
-        "role": "user",
-    }
-
-    tests = [
-        # no turn
-        (
+@pytest.mark.parametrize(
+    ("prompts", "expected", "exp_files"),
+    [
+        pytest.param(
             [],
             {"model": "test_model", "instructions": "", "input": []},
             3,
+            id="no_turn",
         ),
-        # model turn
-        (
+        pytest.param(
             [LlmTurn(role="model", text=["the response"])],
-            {"model": "test_model", "instructions": "", "input": [exp_model]},
+            {
+                "model": "test_model",
+                "instructions": "",
+                "input": [
+                    {
+                        "content": [{"text": "the response", "type": "output_text"}],
+                        "role": "assistant",
+                    }
+                ],
+            },
             3,
+            id="model_turn",
         ),
-        # system turn
-        (
+        pytest.param(
             [LlmTurn(role="system", text=["the system prompt"])],
             {"model": "test_model", "instructions": "the system prompt", "input": []},
             3,
+            id="system_turn",
         ),
-        # user turn
-        (
+        pytest.param(
             [LlmTurn(role="user", text=["the user prompt"])],
-            {"model": "test_model", "instructions": "", "input": [exp_user]},
+            {
+                "model": "test_model",
+                "instructions": "",
+                "input": [
+                    {
+                        "content": [
+                            {"text": "the user prompt", "type": "input_text"},
+                            {"file_url": "https://example.com/doc.pdf", "type": "input_file"},
+                            {"image_url": "https://example.com/pic.jpg", "type": "input_image"},
+                        ],
+                        "role": "user",
+                    }
+                ],
+            },
             0,
+            id="user_turn",
         ),
-    ]
-    for prompts, expected, exp_files in tests:
-        tested = LlmOpenai(settings)
-
-        tested.file_urls = [
-            LlmFileUrl(url="https://example.com/doc.pdf", type=FileType.PDF),
-            LlmFileUrl(url="https://example.com/pic.jpg", type=FileType.IMAGE),
-            LlmFileUrl(url="https://example.com/text.txt", type=FileType.TEXT),
-        ]
-        assert len(tested.file_urls) == 3
-
-        for prompt in prompts:
-            tested.add_prompt(prompt)
-
-        result = tested.to_dict()
-        assert result == expected
-        assert len(tested.file_urls) == exp_files
-
-
-@patch("canvas_sdk.clients.llms.libraries.llm_openai.Http")
-def test_request(http: MagicMock) -> None:
-    """Test successful API request to OpenAI."""
-
-    def reset_mocks() -> None:
-        http.reset_mock()
-
+    ],
+)
+def test_to_dict__with_files(prompts: list, expected: dict, exp_files: int) -> None:
+    """Test conversion of prompts with file attachments to OpenAI API format."""
     settings = LlmSettings(api_key="test_key", model="test_model")
+
     tested = LlmOpenai(settings)
-    tested.add_prompt(LlmTurn(role="user", text=["test"]))
 
-    # exceptions
-    exception_no_response = exceptions.RequestException("Connection error")
-    exception_with_response = exceptions.RequestException("Server error")
-    exception_with_response.response = models.Response()
-    exception_with_response.response.status_code = 404
-    exception_with_response.response._content = b"not found"
+    tested.file_urls = [
+        LlmFileUrl(url="https://example.com/doc.pdf", type=FileType.PDF),
+        LlmFileUrl(url="https://example.com/pic.jpg", type=FileType.IMAGE),
+        LlmFileUrl(url="https://example.com/text.txt", type=FileType.TEXT),
+    ]
+    assert len(tested.file_urls) == 3
 
-    tests = [
-        # success
-        (
+    for prompt in prompts:
+        tested.add_prompt(prompt)
+
+    result = tested.to_dict()
+    assert result == expected
+    assert len(tested.file_urls) == exp_files
+
+
+@pytest.mark.parametrize(
+    ("response", "expected"),
+    [
+        pytest.param(
             SimpleNamespace(
                 status_code=200,
                 text="{"
@@ -159,9 +156,9 @@ def test_request(http: MagicMock) -> None:
                 response="response text",
                 tokens=LlmTokens(prompt=10, generated=20),
             ),
+            id="all_good",
         ),
-        # error
-        (
+        pytest.param(
             SimpleNamespace(
                 status_code=429,
                 text="Rate limit exceeded",
@@ -171,9 +168,9 @@ def test_request(http: MagicMock) -> None:
                 response="Rate limit exceeded",
                 tokens=LlmTokens(prompt=0, generated=0),
             ),
+            id="error",
         ),
-        # multiple output messages
-        (
+        pytest.param(
             SimpleNamespace(
                 status_code=200,
                 text="{"
@@ -190,49 +187,59 @@ def test_request(http: MagicMock) -> None:
                 response="part1part2",
                 tokens=LlmTokens(prompt=10, generated=20),
             ),
+            id="multiple-output-messages",
         ),
-        # exception -- no response
-        (
-            exception_no_response,
+        pytest.param(
+            exceptions.RequestException("Connection error"),
             LlmResponse(
                 code=HTTPStatus.BAD_REQUEST,
                 response="Request failed: Connection error",
                 tokens=LlmTokens(prompt=0, generated=0),
             ),
+            id="exception--no-response",
         ),
-        # exception -- with response
-        (
-            exception_with_response,
+        pytest.param(
+            exceptions.RequestException(
+                "Server error",
+                response=SimpleNamespace(status_code=404, text="not found"),  # type: ignore[arg-type]
+            ),
             LlmResponse(
                 code=HTTPStatus.NOT_FOUND,
                 response="not found",
                 tokens=LlmTokens(prompt=0, generated=0),
             ),
+            id="exception--with-response",
+        ),
+    ],
+)
+def test_request(mocker: MockerFixture, response: Any, expected: LlmResponse) -> None:
+    """Test successful API request to OpenAI."""
+    http = mocker.patch("canvas_sdk.clients.llms.libraries.llm_openai.Http")
+    http.return_value.post.side_effect = [response]
+
+    settings = LlmSettings(api_key="test_key", model="test_model")
+    tested = LlmOpenai(settings)
+    tested.add_prompt(LlmTurn(role="user", text=["test"]))
+
+    result = tested.request()
+    assert result == expected
+
+    calls = [
+        call("https://us.api.openai.com/v1/responses"),
+        call().post(
+            "",
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": "Bearer test_key",
+            },
+            data="{"
+            '"model": "test_model", '
+            '"instructions": "", '
+            '"input": [{'
+            '"role": "user", '
+            '"content": [{"type": "input_text", "text": "test"}]'
+            "}]"
+            "}",
         ),
     ]
-    for response, expected in tests:
-        http.return_value.post.side_effect = [response]
-
-        result = tested.request()
-        assert result == expected
-
-        calls = [
-            call("https://us.api.openai.com/v1/responses"),
-            call().post(
-                "",
-                headers={
-                    "Content-Type": "application/json",
-                    "Authorization": "Bearer test_key",
-                },
-                data="{"
-                '"model": "test_model", '
-                '"instructions": "", '
-                '"input": [{'
-                '"role": "user", '
-                '"content": [{"type": "input_text", "text": "test"}]'
-                "}]"
-                "}",
-            ),
-        ]
-        assert http.mock_calls == calls
-        reset_mocks()
+    assert http.mock_calls == calls

@@ -11,10 +11,15 @@ from canvas_sdk.clients.llms.structures.llm_tokens import LlmTokens
 from canvas_sdk.clients.llms.structures.llm_turn import LlmTurn
 from canvas_sdk.clients.llms.structures.settings.llm_settings import LlmSettings
 from canvas_sdk.tests.conftest import has_constants
+from canvas_sdk.utils import Http
 
 
-class TestLlmBase(LlmBase):
+class ImplementedLlmBase(LlmBase):
     """Subclass of LlmBase to implement the request method."""
+
+    @classmethod
+    def _http(cls) -> Http:
+        return Http("https://some.url")
 
     def request(self) -> LlmResponse:
         """Minimal implementation."""
@@ -40,16 +45,18 @@ def test_constants() -> None:
 def test___init__() -> None:
     """Test initialization of LlmBase."""
     settings = LlmSettings(api_key="test_key", model="test_model")
-    tested = TestLlmBase(settings)
+    tested = ImplementedLlmBase(settings)
 
     assert tested.settings == settings
     assert tested.prompts == []
+    assert isinstance(tested.http, Http)
+    assert tested.http._base_url == "https://some.url"
 
 
 def test_reset_prompts() -> None:
     """Test reset_prompts clears all stored prompts."""
     settings = LlmSettings(api_key="test_key", model="test_model")
-    tested = TestLlmBase(settings)
+    tested = ImplementedLlmBase(settings)
 
     # Add some prompts
     tested.prompts = [
@@ -65,7 +72,7 @@ def test_reset_prompts() -> None:
 def test_set_system_prompt() -> None:
     """Test set_system_prompt adds or replaces system prompt at beginning."""
     settings = LlmSettings(api_key="test_key", model="test_model")
-    tested = TestLlmBase(settings)
+    tested = ImplementedLlmBase(settings)
 
     # Add first system prompt
     tested.set_system_prompt(["system1"])
@@ -88,7 +95,7 @@ def test_set_system_prompt() -> None:
 def test_set_user_prompt() -> None:
     """Test set_user_prompt appends user prompts."""
     settings = LlmSettings(api_key="test_key", model="test_model")
-    tested = TestLlmBase(settings)
+    tested = ImplementedLlmBase(settings)
 
     tested.set_user_prompt(["user1"])
     tested.set_user_prompt(["user2"])
@@ -103,7 +110,7 @@ def test_set_user_prompt() -> None:
 def test_set_model_prompt() -> None:
     """Test set_model_prompt appends model responses."""
     settings = LlmSettings(api_key="test_key", model="test_model")
-    tested = TestLlmBase(settings)
+    tested = ImplementedLlmBase(settings)
 
     tested.set_model_prompt(["model1"])
     tested.set_model_prompt(["model2"])
@@ -118,7 +125,7 @@ def test_set_model_prompt() -> None:
 def test_add_prompt() -> None:
     """Test add_prompt routes prompts to appropriate methods based on role."""
     settings = LlmSettings(api_key="test_key", model="test_model")
-    tested = TestLlmBase(settings)
+    tested = ImplementedLlmBase(settings)
 
     # Add different role prompts
     tested.add_prompt(LlmTurn(role="system", text=["sys"]))
@@ -255,11 +262,11 @@ def test_attempt_requests(
     expected_calls: list,
 ) -> None:
     """Test attempt_requests retries until success or max attempts."""
-    request = mocker.patch.object(TestLlmBase, "request")
+    request = mocker.patch.object(ImplementedLlmBase, "request")
     request.side_effect = side_effects
 
     settings = LlmSettings(api_key="test_key", model="test_model")
-    tested = TestLlmBase(settings)
+    tested = ImplementedLlmBase(settings)
 
     result = tested.attempt_requests(attempts)
     assert result == expected

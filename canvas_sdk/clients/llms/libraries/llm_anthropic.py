@@ -88,13 +88,16 @@ class LlmAnthropic(LlmBase):
 
         return self.settings.to_dict() | structured | {"messages": messages}
 
+    @classmethod
+    def _http(cls) -> Http:
+        return Http("https://api.anthropic.com")
+
     def request(self) -> LlmResponse:
         """Make a request to the Anthropic Claude API.
 
         Returns:
             Response containing status code, generated text, and token usage.
         """
-        url = "https://api.anthropic.com/v1/messages"
         headers = {
             "Content-Type": "application/json",
             "anthropic-version": "2023-06-01",
@@ -104,7 +107,7 @@ class LlmAnthropic(LlmBase):
 
         tokens = LlmTokens(prompt=0, generated=0)
         try:
-            request = Http(url).post("", headers=headers, data=data)
+            request = self.http.post("/v1/messages", headers=headers, data=data)
             code = request.status_code
             response = request.text
             if code == HTTPStatus.OK.value:

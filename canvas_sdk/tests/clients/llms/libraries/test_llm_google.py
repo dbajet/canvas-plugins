@@ -19,6 +19,7 @@ from canvas_sdk.clients.llms.structures.llm_response import LlmResponse
 from canvas_sdk.clients.llms.structures.llm_tokens import LlmTokens
 from canvas_sdk.clients.llms.structures.llm_turn import LlmTurn
 from canvas_sdk.clients.llms.structures.settings.llm_settings import LlmSettings
+from canvas_sdk.utils import Http
 
 
 def test_to_dict() -> None:
@@ -241,6 +242,14 @@ def test_to_dict__schema() -> None:
     assert result == expected
 
 
+def test__http() -> None:
+    """Test the defined URL of the Http instance."""
+    tested = LlmGoogle
+    result = tested._http()
+    assert isinstance(result, Http)
+    assert result._base_url == "https://generativelanguage.googleapis.com"
+
+
 @pytest.mark.parametrize(
     ("response", "expected"),
     [
@@ -307,13 +316,9 @@ def test_request(mocker: MockerFixture, response: Any, expected: LlmResponse) ->
     assert result == expected
 
     calls = [
-        call(
-            "https://generativelanguage.googleapis.com/"
-            "v1beta/"
-            "test_model:generateContent?key=test_key"
-        ),
+        call("https://generativelanguage.googleapis.com"),
         call().post(
-            "",
+            "/v1beta/test_model:generateContent?key=test_key",
             headers={
                 "Content-Type": "application/json",
             },

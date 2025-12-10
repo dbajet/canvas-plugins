@@ -41,6 +41,7 @@ class LlmBase(ABC):
         """
         self.settings = settings
         self.prompts: list[LlmTurn] = []
+        self.http = self._http()
         self.file_urls: list[LlmFileUrl] = []
         self.schema: type[BaseModelLlmJson] | None = None
 
@@ -126,6 +127,12 @@ class LlmBase(ABC):
         Raises:
             NotImplementedError: This method must be implemented by subclasses.
         """
+        ...
+
+    @classmethod
+    @abstractmethod
+    def _http(cls) -> Http:
+        """Create the Http instance for the LLM subclass."""
         ...
 
     def attempt_requests(self, attempts: int) -> list[LlmResponse]:

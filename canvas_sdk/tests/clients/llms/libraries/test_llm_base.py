@@ -15,10 +15,15 @@ from canvas_sdk.clients.llms.structures.llm_response import LlmResponse
 from canvas_sdk.clients.llms.structures.llm_tokens import LlmTokens
 from canvas_sdk.clients.llms.structures.llm_turn import LlmTurn
 from canvas_sdk.clients.llms.structures.settings.llm_settings import LlmSettings
+from canvas_sdk.utils import Http
 
 
 class ImplementedLlmBase(LlmBase):
     """Subclass of LlmBase to implement the request method."""
+
+    @classmethod
+    def _http(cls) -> Http:
+        return Http("https://some.url")
 
     def request(self) -> LlmResponse:
         """Minimal implementation."""
@@ -44,6 +49,8 @@ def test___init__() -> None:
 
     assert tested.settings == settings
     assert tested.prompts == []
+    assert isinstance(tested.http, Http)
+    assert tested.http._base_url == "https://some.url"
     assert tested.file_urls == []
     assert tested.schema is None
 

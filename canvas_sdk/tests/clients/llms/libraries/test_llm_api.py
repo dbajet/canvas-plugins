@@ -7,7 +7,7 @@ from pytest_mock import MockerFixture
 from requests import exceptions
 
 from canvas_sdk.clients.llms.constants.file_type import FileType
-from canvas_sdk.clients.llms.libraries.llm_base import LlmBase
+from canvas_sdk.clients.llms.libraries.llm_api import LlmApi
 from canvas_sdk.clients.llms.structures.base_model_llm_json import BaseModelLlmJson
 from canvas_sdk.clients.llms.structures.file_content import FileContent
 from canvas_sdk.clients.llms.structures.llm_file_url import LlmFileUrl
@@ -18,12 +18,12 @@ from canvas_sdk.clients.llms.structures.settings.llm_settings import LlmSettings
 from canvas_sdk.utils import Http
 
 
-class ImplementedLlmBase(LlmBase):
-    """Subclass of LlmBase to implement the request method."""
+class ImplementedLlmApi(LlmApi):
+    """Subclass of LlmApi to implement the request method."""
 
     @classmethod
-    def _http(cls) -> Http:
-        return Http("https://some.url")
+    def _api_base_url(cls) -> str:
+        return "https://some.url"
 
     def request(self) -> LlmResponse:
         """Minimal implementation."""
@@ -36,16 +36,16 @@ class ImplementedLlmBase(LlmBase):
 
 def test_constants() -> None:
     """Test constants."""
-    tested = LlmBase
+    tested = LlmApi
     assert tested.ROLE_MODEL == "model"
     assert tested.ROLE_SYSTEM == "system"
     assert tested.ROLE_USER == "user"
 
 
 def test___init__() -> None:
-    """Test initialization of LlmBase."""
+    """Test initialization of LlmApi."""
     settings = LlmSettings(api_key="test_key", model="test_model")
-    tested = ImplementedLlmBase(settings)
+    tested = ImplementedLlmApi(settings)
 
     assert tested.settings == settings
     assert tested.prompts == []
@@ -58,7 +58,7 @@ def test___init__() -> None:
 def test_reset_prompts() -> None:
     """Test reset_prompts clears all stored prompts."""
     settings = LlmSettings(api_key="test_key", model="test_model")
-    tested = ImplementedLlmBase(settings)
+    tested = ImplementedLlmApi(settings)
 
     # Add some prompts
     tested.prompts = [
@@ -74,7 +74,7 @@ def test_reset_prompts() -> None:
 def test_add_url_file() -> None:
     """Test add_url_file appends file URLs."""
     settings = LlmSettings(api_key="test_key", model="test_model")
-    tested = ImplementedLlmBase(settings)
+    tested = ImplementedLlmApi(settings)
 
     file_url_1 = LlmFileUrl(url="https://example.com/file1.pdf", type=FileType.PDF)
     file_url_2 = LlmFileUrl(url="https://example.com/file2.jpg", type=FileType.IMAGE)
@@ -90,7 +90,7 @@ def test_add_url_file() -> None:
 def test_add_prompt() -> None:
     """Test add_prompt routes prompts to appropriate methods based on role."""
     settings = LlmSettings(api_key="test_key", model="test_model")
-    tested = ImplementedLlmBase(settings)
+    tested = ImplementedLlmApi(settings)
 
     # Add different role prompts
     tested.add_prompt(LlmTurn(role="system", text=["sys"]))
@@ -110,7 +110,7 @@ def test_add_prompt() -> None:
 def test_set_system_prompt() -> None:
     """Test set_system_prompt adds or replaces system prompt at beginning."""
     settings = LlmSettings(api_key="test_key", model="test_model")
-    tested = ImplementedLlmBase(settings)
+    tested = ImplementedLlmApi(settings)
 
     # Add first system prompt
     tested.set_system_prompt(["system1"])
@@ -133,7 +133,7 @@ def test_set_system_prompt() -> None:
 def test_set_user_prompt() -> None:
     """Test set_user_prompt appends user prompts."""
     settings = LlmSettings(api_key="test_key", model="test_model")
-    tested = ImplementedLlmBase(settings)
+    tested = ImplementedLlmApi(settings)
 
     tested.set_user_prompt(["user1"])
     tested.set_user_prompt(["user2"])
@@ -148,7 +148,7 @@ def test_set_user_prompt() -> None:
 def test_set_model_prompt() -> None:
     """Test set_model_prompt appends model responses."""
     settings = LlmSettings(api_key="test_key", model="test_model")
-    tested = ImplementedLlmBase(settings)
+    tested = ImplementedLlmApi(settings)
 
     tested.set_model_prompt(["model1"])
     tested.set_model_prompt(["model2"])
@@ -176,7 +176,7 @@ def test_set_schema(
     validate_nested_models = mocker.patch.object(BaseModelLlmJson, "validate_nested_models")
 
     settings = LlmSettings(api_key="test_key", model="test_model")
-    tested = ImplementedLlmBase(settings)
+    tested = ImplementedLlmApi(settings)
     assert tested.schema is None
 
     validate_nested_models.side_effect = [is_valid]
@@ -307,11 +307,11 @@ def test_attempt_requests(
     expected_calls: list,
 ) -> None:
     """Test attempt_requests retries until success or max attempts."""
-    request = mocker.patch.object(ImplementedLlmBase, "request")
+    request = mocker.patch.object(ImplementedLlmApi, "request")
     request.side_effect = side_effects
 
     settings = LlmSettings(api_key="test_key", model="test_model")
-    tested = ImplementedLlmBase(settings)
+    tested = ImplementedLlmApi(settings)
 
     result = tested.attempt_requests(attempts)
     assert result == expected
@@ -354,12 +354,12 @@ def test_base64_encoded_content_of(
     mocker: MockerFixture, side_effects: list, expected: FileContent
 ) -> None:
     """Test base64 encoding of file content from URL."""
-    http = mocker.patch("canvas_sdk.clients.llms.libraries.llm_base.Http")
+    http = mocker.patch("canvas_sdk.clients.llms.libraries.llm_api.Http")
 
     http.return_value.get.side_effect = side_effects
 
     file_url = LlmFileUrl(url="https://example.com/file.pdf", type=FileType.PDF)
-    result = LlmBase.base64_encoded_content_of(file_url)
+    result = LlmApi.base64_encoded_content_of(file_url)
     assert result == expected
     calls = [
         call("https://example.com/file.pdf"),

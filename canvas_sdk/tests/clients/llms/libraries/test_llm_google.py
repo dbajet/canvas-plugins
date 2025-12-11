@@ -7,18 +7,17 @@ import pytest
 from pytest_mock import MockerFixture
 from requests import exceptions
 
-from canvas_sdk.clients.llms.libraries.llm_base import LlmBase
+from canvas_sdk.clients.llms.libraries.llm_api import LlmApi
 from canvas_sdk.clients.llms.libraries.llm_google import LlmGoogle
 from canvas_sdk.clients.llms.structures.llm_response import LlmResponse
 from canvas_sdk.clients.llms.structures.llm_tokens import LlmTokens
 from canvas_sdk.clients.llms.structures.llm_turn import LlmTurn
 from canvas_sdk.clients.llms.structures.settings.llm_settings import LlmSettings
-from canvas_sdk.utils import Http
 
 
 def test_class() -> None:
     """Test LlmGoogle is a subclass of LlmBase."""
-    assert issubclass(LlmGoogle, LlmBase)
+    assert issubclass(LlmGoogle, LlmApi)
 
 
 def test_to_dict() -> None:
@@ -70,12 +69,12 @@ def test_to_dict() -> None:
     assert result == expected
 
 
-def test__http() -> None:
+def test__api_base_url() -> None:
     """Test the defined URL of the Http instance."""
     tested = LlmGoogle
-    result = tested._http()
-    assert isinstance(result, Http)
-    assert result._base_url == "https://generativelanguage.googleapis.com"
+    result = tested._api_base_url()
+    expected = "https://generativelanguage.googleapis.com"
+    assert result == expected
 
 
 @pytest.mark.parametrize(
@@ -133,7 +132,7 @@ def test__http() -> None:
 )
 def test_request(mocker: MockerFixture, response: Any, expected: LlmResponse) -> None:
     """Test successful API request to Google."""
-    http = mocker.patch("canvas_sdk.clients.llms.libraries.llm_google.Http")
+    http = mocker.patch("canvas_sdk.clients.llms.libraries.llm_api.Http")
     http.return_value.post.side_effect = [response]
 
     settings = LlmSettings(api_key="test_key", model="test_model")

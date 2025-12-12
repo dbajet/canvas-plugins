@@ -125,6 +125,7 @@
     "StopMedicationCommand",
     "StructuredAssessmentCommand",
     "TaskCommand",
+    "UncategorizedDocumentReviewCommand",
     "UpdateDiagnosisCommand",
     "UpdateGoalCommand",
     "VitalsCommand"
@@ -244,6 +245,9 @@
   ],
   "canvas_sdk.commands.commands.review.referral": [
     "ReferralReviewCommand"
+  ],
+  "canvas_sdk.commands.commands.review.uncategorized_document": [
+    "UncategorizedDocumentReviewCommand"
   ],
   "canvas_sdk.commands.commands.review_of_systems": [
     "ReviewOfSystemsCommand"
@@ -824,7 +828,9 @@
     "TeamContactPoint",
     "Transactor",
     "TransactorAddress",
-    "TransactorPhone"
+    "TransactorPhone",
+    "UncategorizedClinicalDocument",
+    "UncategorizedClinicalDocumentReview"
   ],
   "canvas_sdk.v1.data.allergy_intolerance": [
     "AllergyIntolerance",
@@ -1134,6 +1140,10 @@
     "Team",
     "TeamContactPoint",
     "TeamResponsibility"
+  ],
+  "canvas_sdk.v1.data.uncategorized_clinical_document": [
+    "UncategorizedClinicalDocument",
+    "UncategorizedClinicalDocumentReview"
   ],
   "canvas_sdk.v1.data.user": [
     "CanvasUser"
